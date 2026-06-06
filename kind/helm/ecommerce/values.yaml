@@ -1,0 +1,82 @@
+# Default values — override with: helm install ecommerce . -f my-values.yaml
+# or per-value: helm install ecommerce . --set userService.replicas=3
+
+namespace: ecommerce
+
+userService:
+  replicas: 2
+  image: node:18-alpine
+  port: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    cpuUtilization: 70
+
+productService:
+  replicas: 2
+  image: node:18-alpine
+  port: 3001
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    cpuUtilization: 70
+
+orderService:
+  replicas: 2
+  image: node:18-alpine
+  port: 3002
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+frontend:
+  replicas: 2
+  image: nginx:1.25-alpine
+  port: 80
+
+postgresql:
+  storageClass: standard
+  storage: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+redis:
+  storageClass: standard
+  storage: 512Mi
+
+rabbitmq:
+  storageClass: standard
+  storage: 1Gi
+
+ingress:
+  enabled: true
+  className: nginx
+  host: ecommerce.local
+
+networkPolicies:
+  enabled: false   # Set to true when using a CNI that supports NetworkPolicy (e.g. Calico)

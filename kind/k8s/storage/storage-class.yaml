@@ -1,0 +1,15 @@
+# StorageClass defines HOW storage is provisioned dynamically.
+# Kind ships with a default `standard` class backed by the host filesystem.
+# We define our own to control reclaim policy and binding mode.
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ecommerce-storage
+  annotations:
+    # Mark as the default class so PVCs without a storageClassName use this
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: rancher.io/local-path   # Kind's built-in local provisioner
+reclaimPolicy: Retain                # Keep the PV after PVC deletion (safer for DBs)
+volumeBindingMode: WaitForFirstConsumer  # Don't provision until a pod actually needs it
+                                          # This ensures the PV is created on the same node as the pod

@@ -1,0 +1,30 @@
+# Ingress — routes external HTTP traffic into the cluster.
+# All traffic goes to the frontend service; the frontend itself calls the backends over gRPC internally.
+# Install NGINX Ingress for Kind first:
+#   kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ecommerce-ingress
+  namespace: ecommerce
+  annotations:
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+spec:
+  ingressClassName: nginx
+  rules:
+    # Access at http://ecommerce.local after adding to hosts file:
+    #   Windows: C:\Windows\System32\drivers\etc\hosts  → 127.0.0.1 ecommerce.local
+    #   Mac/Linux: /etc/hosts                           → 127.0.0.1 ecommerce.local
+    - host: ecommerce.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

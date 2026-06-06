@@ -1,0 +1,192 @@
+# Services — stable network endpoints for each pod group.
+# All backend services use ClusterIP (internal only).
+# Only the frontend is exposed externally via NodePort + Ingress.
+---
+# Frontend — the only HTTP service (port 80 → container 8080)
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: ecommerce
+  labels:
+    app: frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+
+---
+# NodePort — direct access at http://localhost:30080 without Ingress
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-external
+  namespace: ecommerce
+  labels:
+    app: frontend
+spec:
+  type: NodePort
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      nodePort: 30080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cartservice
+  namespace: ecommerce
+  labels:
+    app: cartservice
+spec:
+  type: ClusterIP
+  selector:
+    app: cartservice
+  ports:
+    - name: grpc
+      port: 7070
+      targetPort: 7070
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: productcatalogservice
+  namespace: ecommerce
+  labels:
+    app: productcatalogservice
+spec:
+  type: ClusterIP
+  selector:
+    app: productcatalogservice
+  ports:
+    - name: grpc
+      port: 3550
+      targetPort: 3550
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkoutservice
+  namespace: ecommerce
+  labels:
+    app: checkoutservice
+spec:
+  type: ClusterIP
+  selector:
+    app: checkoutservice
+  ports:
+    - name: grpc
+      port: 5050
+      targetPort: 5050
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paymentservice
+  namespace: ecommerce
+  labels:
+    app: paymentservice
+spec:
+  type: ClusterIP
+  selector:
+    app: paymentservice
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: 50051
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shippingservice
+  namespace: ecommerce
+  labels:
+    app: shippingservice
+spec:
+  type: ClusterIP
+  selector:
+    app: shippingservice
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: 50051
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: currencyservice
+  namespace: ecommerce
+  labels:
+    app: currencyservice
+spec:
+  type: ClusterIP
+  selector:
+    app: currencyservice
+  ports:
+    - name: grpc
+      port: 7000
+      targetPort: 7000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: emailservice
+  namespace: ecommerce
+  labels:
+    app: emailservice
+spec:
+  type: ClusterIP
+  selector:
+    app: emailservice
+  ports:
+    - name: grpc
+      port: 5000
+      targetPort: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recommendationservice
+  namespace: ecommerce
+  labels:
+    app: recommendationservice
+spec:
+  type: ClusterIP
+  selector:
+    app: recommendationservice
+  ports:
+    - name: grpc
+      port: 8080
+      targetPort: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adservice
+  namespace: ecommerce
+  labels:
+    app: adservice
+spec:
+  type: ClusterIP
+  selector:
+    app: adservice
+  ports:
+    - name: grpc
+      port: 9555
+      targetPort: 9555

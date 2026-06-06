@@ -1,0 +1,48 @@
+# EKS Ingress — uses AWS Application Load Balancer (ALB) instead of NGINX.
+#
+# Key difference from Kind:
+#   Kind:  ingressClassName: nginx  (NGINX pod inside the cluster)
+#   EKS:   ingressClassName: alb    (real AWS ALB, managed by AWS)
+#
+# The AWS Load Balancer Controller watches for Ingress objects and
+# automatically provisions an ALB in your VPC.
+#
+# Install AWS Load Balancer Controller first (see scripts/setup-eks.sh)
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ecommerce-ingress
+  namespace: ecommerce
+  annotations:
+    # Tell the controller to create an internet-facing ALB
+    alb.ingress.kubernetes.io/scheme: internet-facing
+
+    # ALB target type — 'ip' routes directly to pod IPs (faster than 'instance')
+    alb.ingress.kubernetes.io/target-type: ip
+
+    # Health check path — ALB pings this to check if pods are healthy
+    alb.ingress.kubernetes.io/healthcheck-path: /_healthz
+
+    # Enable HTTP → HTTPS redirect (uncomment once you have a domain + cert)
+    # alb.ingress.kubernetes.io/ssl-redirect: "443"
+
+    # ACM certificate ARN for HTTPS (uncomment and replace with your cert ARN)
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:ACCOUNT:certificate/CERT-ID
+
+    # Idle timeout for long-running requests
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=60
+spec:
+  ingressClassName: alb
+  rules:
+    # Without a custom domain, ALB gives you a DNS name like:
+    # k8s-ecommerce-xxxxx.us-east-1.elb.amazonaws.com
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

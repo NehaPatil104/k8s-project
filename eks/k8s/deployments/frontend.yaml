@@ -1,0 +1,120 @@
+# Frontend — React/Go web server that aggregates all backend gRPC services.
+# This is the only HTTP service; all other services communicate over gRPC.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: ecommerce
+  labels:
+    app: frontend
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+      annotations:
+        # Tells Prometheus to scrape this pod for metrics
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: frontend-sa
+
+      # Spread replicas across different nodes — if one node dies, the other replica keeps serving
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: ["frontend"]
+                topologyKey: kubernetes.io/hostname
+
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+
+      containers:
+        - name: frontend
+          image: us-central1-docker.pkg.dev/google-samples/microservices-demo/frontend:v0.10.5
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: frontend-config
+          # Downward API — exposes pod metadata as env vars inside the container
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+          # Startup probe — gives extra time on first boot before liveness kicks in
+          startupProbe:
+            httpGet:
+              path: /_healthz
+              port: 8080
+            failureThreshold: 20
+            periodSeconds: 5
+
+          # Liveness — restart if the app becomes unresponsive
+          livenessProbe:
+            httpGet:
+              path: /_healthz
+              port: 8080
+              httpHeaders:
+                - name: Cookie
+                  value: shop_session-id=x-liveness-probe
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+          # Readiness — stop sending traffic if the app is overloaded or warming up
+          readinessProbe:
+            httpGet:
+              path: /_healthz
+              port: 8080
+              httpHeaders:
+                - name: Cookie
+                  value: shop_session-id=x-readiness-probe
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+      terminationGracePeriodSeconds: 30

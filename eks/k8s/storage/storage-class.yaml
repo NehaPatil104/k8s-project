@@ -1,0 +1,28 @@
+# EKS Storage Class — uses AWS EBS (gp3) instead of Kind's local-path.
+# gp3 is the latest generation EBS volume — faster and cheaper than gp2.
+#
+# Key difference from Kind:
+#   Kind:  provisioner: rancher.io/local-path  (files on the node)
+#   EKS:   provisioner: ebs.csi.aws.com        (real AWS EBS volumes)
+#
+# EBS volumes are:
+#   - Network-attached (survives node replacement)
+#   - Replicated within an AZ by AWS
+#   - Billed per GB per month (~$0.08/GB for gp3)
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ecommerce-storage
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+# AWS EBS CSI driver — must be installed via the EKS add-on (done in Terraform)
+provisioner: ebs.csi.aws.com
+reclaimPolicy: Retain       # Keep the EBS volume after PVC deletion
+volumeBindingMode: WaitForFirstConsumer  # Create EBS volume in the same AZ as the pod
+allowVolumeExpansion: true  # Allow resizing the volume later without downtime
+parameters:
+  type: gp3              # Latest EBS type — better performance than gp2
+  encrypted: "true"      # Encrypt the volume at rest (AWS KMS)
+  # iops: "3000"         # Optionally set custom IOPS (gp3 default is 3000)
+  # throughput: "125"    # Optionally set throughput in MB/s (gp3 default is 125)

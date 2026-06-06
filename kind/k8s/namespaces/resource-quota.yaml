@@ -1,0 +1,49 @@
+# ResourceQuota enforces hard limits on total resource consumption per namespace.
+# Prevents one team/service from starving the rest of the cluster.
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ecommerce-quota
+  namespace: ecommerce
+spec:
+  hard:
+    # Compute
+    requests.cpu: "8"
+    requests.memory: 8Gi
+    limits.cpu: "16"
+    limits.memory: 16Gi
+    # Object counts — prevent runaway pod/service creation
+    pods: "50"
+    services: "20"
+    persistentvolumeclaims: "10"
+    secrets: "30"
+    configmaps: "20"
+
+---
+# LimitRange sets DEFAULT requests/limits for containers that don't specify them.
+# Without this, a pod with no limits can consume unlimited cluster resources.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: ecommerce-limit-range
+  namespace: ecommerce
+spec:
+  limits:
+    - type: Container
+      default:          # Applied when container omits limits
+        cpu: 200m
+        memory: 256Mi
+      defaultRequest:   # Applied when container omits requests
+        cpu: 100m
+        memory: 128Mi
+      max:              # Hard ceiling — container cannot exceed this
+        cpu: "2"
+        memory: 2Gi
+      min:              # Floor — container must request at least this
+        cpu: 10m
+        memory: 16Mi
+    - type: Pod
+      max:
+        cpu: "4"
+        memory: 4Gi

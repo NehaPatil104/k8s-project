@@ -1,0 +1,79 @@
+# Product catalog — gRPC server (port 3550), serves product listings from a static JSON file.
+# Good for demonstrating HPA — product browsing is the highest-traffic endpoint.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: productcatalogservice
+  namespace: ecommerce
+  labels:
+    app: productcatalogservice
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: productcatalogservice
+  template:
+    metadata:
+      labels:
+        app: productcatalogservice
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: ["productcatalogservice"]
+                topologyKey: kubernetes.io/hostname
+
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+
+      containers:
+        - name: productcatalogservice
+          image: us-central1-docker.pkg.dev/google-samples/microservices-demo/productcatalogservice:v0.10.5
+          ports:
+            - name: grpc
+              containerPort: 3550
+          envFrom:
+            - configMapRef:
+                name: productcatalogservice-config
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+          livenessProbe:
+            grpc:
+              port: 3550
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          readinessProbe:
+            grpc:
+              port: 3550
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+      terminationGracePeriodSeconds: 30

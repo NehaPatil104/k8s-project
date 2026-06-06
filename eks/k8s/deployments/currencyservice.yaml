@@ -1,0 +1,60 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: currencyservice
+  namespace: ecommerce
+  labels:
+    app: currencyservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: currencyservice
+  template:
+    metadata:
+      labels:
+        app: currencyservice
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+
+      containers:
+        - name: currencyservice
+          image: us-central1-docker.pkg.dev/google-samples/microservices-demo/currencyservice:v0.10.5
+          ports:
+            - name: grpc
+              containerPort: 7000
+          envFrom:
+            - configMapRef:
+                name: currencyservice-config
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+          livenessProbe:
+            grpc:
+              port: 7000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          readinessProbe:
+            grpc:
+              port: 7000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+      terminationGracePeriodSeconds: 30

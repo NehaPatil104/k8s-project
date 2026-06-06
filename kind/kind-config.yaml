@@ -1,0 +1,55 @@
+# Kind cluster configuration
+# 1 control-plane node + 3 worker nodes — mirrors a real production topology
+# Docs: https://kind.sigs.k8s.io/docs/user/configuration/
+apiVersion: kind.x-k8s.io/v1alpha4
+kind: Cluster
+name: ecommerce-cluster
+
+nodes:
+  # Control plane — schedules workloads and runs the K8s API server
+  - role: control-plane
+    kubeadmConfigPatches:
+      # Enable the NGINX ingress controller to bind to host ports 80 and 443
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+
+  # Worker node 1 — general workloads
+  - role: worker
+    labels:
+      node-type: general
+
+  # Worker node 2 — general workloads
+  - role: worker
+    labels:
+      node-type: general
+
+  # Worker node 3 — labelled for stateful/database workloads
+  # We use Taints + NodeAffinity to pin databases here
+  - role: worker
+    labels:
+      node-type: storage
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: "workload"
+              value: "storage"
+              effect: "NoSchedule"
+
+networking:
+  # Pod CIDR — default is fine for local Kind
+  podSubnet: "10.244.0.0/16"
+  serviceSubnet: "10.96.0.0/12"
+  # Disable default CNI so we can install a real one (Calico) for NetworkPolicy support
+  disableDefaultCNI: false

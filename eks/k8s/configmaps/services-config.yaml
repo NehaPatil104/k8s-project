@@ -1,0 +1,132 @@
+# ConfigMaps for Online Boutique services.
+# Environment variables that are non-sensitive go here.
+# Each service reads only its own ConfigMap.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: ecommerce
+data:
+  PORT: "8080"
+  # These are the cluster-internal DNS names for each gRPC backend.
+  # Format: <service-name>.<namespace>.svc.cluster.local:<port>
+  # Short form works within the same namespace: <service-name>:<port>
+  PRODUCT_CATALOG_SERVICE_ADDR: "productcatalogservice:3550"
+  CURRENCY_SERVICE_ADDR: "currencyservice:7000"
+  CART_SERVICE_ADDR: "cartservice:7070"
+  RECOMMENDATION_SERVICE_ADDR: "recommendationservice:8080"
+  SHIPPING_SERVICE_ADDR: "shippingservice:50051"
+  CHECKOUT_SERVICE_ADDR: "checkoutservice:5050"
+  AD_SERVICE_ADDR: "adservice:9555"
+  # SHOPPING_ASSISTANT_SERVICE_ADDR is required by v0.10.5 frontend.
+  # We point it at a non-existent service — the frontend degrades gracefully (no assistant feature).
+  SHOPPING_ASSISTANT_SERVICE_ADDR: "shoppingassistantservice:80"
+  ENABLE_PROFILER: "0"
+  ENV_PLATFORM: "local"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: checkoutservice-config
+  namespace: ecommerce
+data:
+  PORT: "5050"
+  PRODUCT_CATALOG_SERVICE_ADDR: "productcatalogservice:3550"
+  SHIPPING_SERVICE_ADDR: "shippingservice:50051"
+  PAYMENT_SERVICE_ADDR: "paymentservice:50051"
+  EMAIL_SERVICE_ADDR: "emailservice:5000"
+  CURRENCY_SERVICE_ADDR: "currencyservice:7000"
+  CART_SERVICE_ADDR: "cartservice:7070"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: recommendationservice-config
+  namespace: ecommerce
+data:
+  PORT: "8080"
+  PRODUCT_CATALOG_SERVICE_ADDR: "productcatalogservice:3550"
+  DISABLE_PROFILER: "1"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cartservice-config
+  namespace: ecommerce
+data:
+  # Redis address — matches the Service name of our redis-cart StatefulSet
+  REDIS_ADDR: "redis-cart:6379"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: productcatalogservice-config
+  namespace: ecommerce
+data:
+  PORT: "3550"
+  DISABLE_PROFILER: "1"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paymentservice-config
+  namespace: ecommerce
+data:
+  PORT: "50051"
+  DISABLE_PROFILER: "1"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shippingservice-config
+  namespace: ecommerce
+data:
+  PORT: "50051"
+  DISABLE_PROFILER: "1"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: currencyservice-config
+  namespace: ecommerce
+data:
+  PORT: "7000"
+  DISABLE_PROFILER: "1"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: emailservice-config
+  namespace: ecommerce
+data:
+  PORT: "8080"
+  DISABLE_PROFILER: "1"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adservice-config
+  namespace: ecommerce
+data:
+  PORT: "9555"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loadgenerator-config
+  namespace: ecommerce
+data:
+  FRONTEND_ADDR: "frontend:80"
+  USERS: "10"
+  RATE: "1"

@@ -1,0 +1,60 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recommendationservice
+  namespace: ecommerce
+  labels:
+    app: recommendationservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: recommendationservice
+  template:
+    metadata:
+      labels:
+        app: recommendationservice
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+
+      containers:
+        - name: recommendationservice
+          image: us-central1-docker.pkg.dev/google-samples/microservices-demo/recommendationservice:v0.10.5
+          ports:
+            - name: grpc
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: recommendationservice-config
+          resources:
+            requests:
+              cpu: 100m
+              memory: 220Mi
+            limits:
+              cpu: 200m
+              memory: 450Mi
+
+          livenessProbe:
+            grpc:
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+          readinessProbe:
+            grpc:
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+      terminationGracePeriodSeconds: 30

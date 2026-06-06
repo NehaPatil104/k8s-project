@@ -1,0 +1,19 @@
+# Namespaces provide isolation between environments and teams.
+# We create separate namespaces for the app and monitoring.
+# All app workloads go into `ecommerce` — keeping them away from kube-system.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecommerce
+  labels:
+    app.kubernetes.io/part-of: ecommerce
+    environment: dev
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    app.kubernetes.io/part-of: ecommerce

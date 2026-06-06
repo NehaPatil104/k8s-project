@@ -1,0 +1,68 @@
+# Checkout service — orchestrates the full checkout flow by calling
+# cart, product, payment, shipping, currency, and email services.
+# Good example of a service with many downstream dependencies.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkoutservice
+  namespace: ecommerce
+  labels:
+    app: checkoutservice
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: checkoutservice
+  template:
+    metadata:
+      labels:
+        app: checkoutservice
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+
+      containers:
+        - name: checkoutservice
+          image: us-central1-docker.pkg.dev/google-samples/microservices-demo/checkoutservice:v0.10.5
+          ports:
+            - name: grpc
+              containerPort: 5050
+          envFrom:
+            - configMapRef:
+                name: checkoutservice-config
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+          livenessProbe:
+            grpc:
+              port: 5050
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          readinessProbe:
+            grpc:
+              port: 5050
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+      terminationGracePeriodSeconds: 30

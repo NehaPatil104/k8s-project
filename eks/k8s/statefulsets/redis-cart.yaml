@@ -1,0 +1,101 @@
+# Redis StatefulSet for EKS.
+# Only difference from Kind version: storageClassName is "ecommerce-storage" (EBS gp3)
+# instead of "standard" (local-path). Everything else is identical.
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-cart
+  namespace: ecommerce
+  labels:
+    app: redis-cart
+    tier: cache
+spec:
+  serviceName: redis-cart
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-cart
+  template:
+    metadata:
+      labels:
+        app: redis-cart
+        tier: cache
+    spec:
+      tolerations:
+        - key: "workload"
+          operator: "Equal"
+          value: "storage"
+          effect: "NoSchedule"
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: node-type
+                    operator: In
+                    values: ["storage"]
+
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsNonRoot: true
+
+      containers:
+        - name: redis
+          image: redis:alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 70m
+              memory: 200Mi
+            limits:
+              cpu: 125m
+              memory: 256Mi
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # EKS: uses gp3 EBS volumes (real AWS block storage)
+        # Kind: uses "standard" (local node filesystem)
+        storageClassName: ecommerce-storage
+        resources:
+          requests:
+            storage: 512Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cart
+  namespace: ecommerce
+  labels:
+    app: redis-cart
+spec:
+  selector:
+    app: redis-cart
+  ports:
+    - port: 6379
+      targetPort: 6379

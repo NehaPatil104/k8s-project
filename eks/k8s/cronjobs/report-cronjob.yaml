@@ -1,0 +1,86 @@
+# CronJob — runs on a schedule. Demonstrates scheduled batch work in K8s.
+---
+# Health-check report — runs every 5 minutes (change to "0 * * * *" for hourly in production)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: health-report
+  namespace: ecommerce
+spec:
+  schedule: "*/5 * * * *"
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  startingDeadlineSeconds: 60
+
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels:
+            app: health-report
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: reporter
+              image: busybox:1.36
+              command:
+                - sh
+                - -c
+                - |
+                  echo "=== Health Report ==="
+                  echo "Checking frontend..."
+                  wget -q -O /dev/null http://frontend:80/_healthz && echo "frontend: UP" || echo "frontend: DOWN"
+                  echo "Timestamp: $(date -u)"
+                  echo "Report complete."
+              resources:
+                requests:
+                  cpu: 20m
+                  memory: 32Mi
+                limits:
+                  cpu: 50m
+                  memory: 64Mi
+
+---
+# Nightly cleanup job — runs at 3 AM UTC
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nightly-cleanup
+  namespace: ecommerce
+spec:
+  schedule: "0 3 * * *"
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app: nightly-cleanup
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: cleanup
+              image: busybox:1.36
+              command:
+                - sh
+                - -c
+                - |
+                  echo "Running nightly cleanup at $(date -u)"
+                  echo "Purging expired sessions, old logs, temp data..."
+                  echo "Cleanup complete."
+              resources:
+                requests:
+                  cpu: 20m
+                  memory: 32Mi
+                limits:
+                  cpu: 50m
+                  memory: 64Mi

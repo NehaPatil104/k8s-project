@@ -1,0 +1,108 @@
+# Cart service — gRPC server (port 7070), stores cart data in Redis.
+# Demonstrates: Init Container waiting for Redis before starting.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cartservice
+  namespace: ecommerce
+  labels:
+    app: cartservice
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: cartservice
+  template:
+    metadata:
+      labels:
+        app: cartservice
+    spec:
+      serviceAccountName: default
+
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: ["cartservice"]
+                topologyKey: kubernetes.io/hostname
+
+      # Init container — waits for Redis to accept connections before the cart service starts.
+      # Without this, cartservice crashes on boot because Redis isn't ready yet.
+      initContainers:
+        - name: wait-for-redis
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Redis at redis-cart:6379..."
+              until nc -z redis-cart 6379; do
+                echo "Redis not ready, retrying in 2s..."
+                sleep 2
+              done
+              echo "Redis is ready!"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+      containers:
+        - name: cartservice
+          image: us-central1-docker.pkg.dev/google-samples/microservices-demo/cartservice:v0.10.5
+          ports:
+            - name: grpc
+              containerPort: 7070
+          envFrom:
+            - configMapRef:
+                name: cartservice-config
+          resources:
+            requests:
+              cpu: 200m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 128Mi
+
+          # tcpSocket probe — checks if the port is open and accepting connections.
+          # More compatible than grpc probes across all Kind/K8s versions.
+          livenessProbe:
+            tcpSocket:
+              port: 7070
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+
+          readinessProbe:
+            tcpSocket:
+              port: 7070
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+
+      terminationGracePeriodSeconds: 30

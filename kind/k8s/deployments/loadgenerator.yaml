@@ -1,0 +1,61 @@
+# Load generator — continuously sends realistic traffic to the frontend.
+# Useful for triggering HPA scale-up events and watching autoscaling in action.
+# Uses a Deployment (not a Job) because we want it running continuously.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgenerator
+  namespace: ecommerce
+  labels:
+    app: loadgenerator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loadgenerator
+  template:
+    metadata:
+      labels:
+        app: loadgenerator
+      annotations:
+        sidecar.istio.io/rewriteAppHTTPProbers: "true"
+    spec:
+      # Init container — waits for the frontend to be up before starting load
+      initContainers:
+        - name: wait-for-frontend
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for frontend to be ready..."
+              until wget -q --spider http://frontend:80/_healthz 2>/dev/null; do
+                echo "Frontend not ready, retrying in 3s..."
+                sleep 3
+              done
+              echo "Frontend is ready! Starting load generation."
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+      containers:
+        - name: loadgenerator
+          image: us-central1-docker.pkg.dev/google-samples/microservices-demo/loadgenerator:v0.10.5
+          envFrom:
+            - configMapRef:
+                name: loadgenerator-config
+          resources:
+            requests:
+              cpu: 300m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 5

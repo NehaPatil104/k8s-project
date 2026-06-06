@@ -1,0 +1,49 @@
+# PodDisruptionBudgets — prevent K8s from taking down too many pods at once
+# during voluntary disruptions (node drain, rolling updates, cluster upgrades).
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: ecommerce
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cartservice-pdb
+  namespace: ecommerce
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: cartservice
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: productcatalogservice-pdb
+  namespace: ecommerce
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: productcatalogservice
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: checkoutservice-pdb
+  namespace: ecommerce
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: checkoutservice
