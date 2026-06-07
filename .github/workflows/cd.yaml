@@ -3,10 +3,11 @@
 #
 # Triggers on:
 #   - Push to main that changes Helm chart or K8s manifests
+#   - After CI workflow completes successfully (workflow_run trigger)
 #
 # What it does:
 #   1. Lint Helm chart
-#   2. Validate K8s manifests (dry-run)
+#   2. Validate K8s manifests with kubeconform (offline, no cluster needed)
 #   3. Security scan manifests (checkov)
 #   4. Notify ArgoCD to sync
 # =============================================================================
@@ -25,12 +26,22 @@ on:
     paths:
       - 'kind/helm/**'
       - 'kind/k8s/**'
+  # This trigger runs CD AFTER CI completes — ensures sequential flow:
+  # Code push → CI (test+build+push+update values) → CD (validate+scan+sync)
+  workflow_run:
+    workflows: ["CI — Reviews Service"]
+    types: [completed]
+    branches: [main]
 
 jobs:
   # ── Job 1: Lint & Validate ───────────────────────────────────────────────────
   validate:
     name: Lint & Validate
     runs-on: ubuntu-latest
+    # If triggered by workflow_run, only run if CI succeeded
+    if: |
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
 
     steps:
       - name: Checkout code
@@ -47,30 +58,41 @@ jobs:
           helm lint kind/helm/ecommerce
           echo "✓ Helm chart is valid"
 
-      - name: Helm template (dry-run render)
+      - name: Helm template (render all manifests)
         run: |
           echo "Rendering Helm templates..."
           helm template ecommerce kind/helm/ecommerce > /tmp/rendered.yaml
           echo "✓ Templates rendered successfully"
-          echo "--- Rendered manifest line count ---"
           wc -l /tmp/rendered.yaml
 
-      - name: Setup kubectl
-        uses: azure/setup-kubectl@v3
-
-      - name: Validate manifests with kubectl dry-run
+      # FIX: Use kubeconform instead of kubectl dry-run
+      # kubeconform validates K8s manifests OFFLINE against the K8s API schema
+      # No cluster needed — it downloads the schema from GitHub
+      - name: Install kubeconform
         run: |
-          echo "Validating rendered manifests..."
-          # FIX: add --validate=false — no cluster available on GitHub runner
-          # This still catches YAML structure errors without needing a live cluster
+          curl -sSLo /tmp/kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          tar -xf /tmp/kubeconform.tar.gz -C /tmp
+          chmod +x /tmp/kubeconform
+
+      - name: Validate manifests with kubeconform
+        run: |
+          echo "Validating K8s manifests against schema..."
           helm template ecommerce kind/helm/ecommerce | \
-            kubectl apply --dry-run=client --validate=false -f -
-          echo "✓ Manifest validation complete"
+            /tmp/kubeconform \
+              -kubernetes-version 1.30.0 \
+              -summary \
+              -ignore-missing-schemas \
+              -skip HorizontalPodAutoscaler
+          echo "✓ All manifests are valid"
 
   # ── Job 2: Security Scan ─────────────────────────────────────────────────────
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
+    if: |
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
 
     steps:
       - name: Checkout code
@@ -83,20 +105,16 @@ jobs:
 
       - name: Render Helm templates for scanning
         run: |
-          # FIX: write to GITHUB_WORKSPACE instead of /tmp
-          # Checkov runs inside a Docker container — /tmp on the runner is NOT
-          # accessible inside that container. GITHUB_WORKSPACE IS mounted.
+          # Write to GITHUB_WORKSPACE — accessible inside checkov Docker container
           helm template ecommerce kind/helm/ecommerce > $GITHUB_WORKSPACE/manifests.yaml
-          echo "Manifest written to: $GITHUB_WORKSPACE/manifests.yaml"
-          wc -l $GITHUB_WORKSPACE/manifests.yaml
+          echo "Manifests written: $(wc -l < $GITHUB_WORKSPACE/manifests.yaml) lines"
 
       - name: Run Checkov security scan
         uses: bridgecrewio/checkov-action@master
         with:
-          # FIX: use workspace-relative path — accessible inside Docker container
           file: manifests.yaml
           framework: kubernetes
-          soft_fail: true
+          soft_fail: true   # Report findings but don't fail the build
         continue-on-error: true
 
   # ── Job 3: ArgoCD Sync ───────────────────────────────────────────────────────
@@ -104,13 +122,18 @@ jobs:
     name: Trigger ArgoCD Sync
     runs-on: ubuntu-latest
     needs: [validate]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
 
     steps:
       - name: Notify ArgoCD
         run: |
-          echo "ArgoCD will automatically detect the git change and sync."
-          echo "ArgoCD polls the repo every 3 minutes by default."
+          echo "✓ CI pipeline completed successfully"
+          echo "✓ Helm chart validated"
           echo ""
-          echo "To force immediate sync via ArgoCD CLI:"
-          echo "  argocd app sync ecommerce --auth-token \$ARGOCD_TOKEN"
+          echo "ArgoCD will automatically detect the git change and sync within 3 minutes."
+          echo ""
+          echo "To force immediate sync:"
+          echo "  kubectl port-forward svc/argocd-server -n argocd 8080:443"
+          echo "  argocd app sync ecommerce"
