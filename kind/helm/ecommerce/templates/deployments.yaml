@@ -843,3 +843,114 @@ spec:
             {{- toYaml .Values.loadgenerator.resources | nindent 12 }}
       terminationGracePeriodSeconds: 5
 {{- end }}
+
+---
+{{/* ------------------------------------------------------------------ */}}
+{{/* reviews-service — our custom microservice (CI/CD demo)              */}}
+{{/* Image tag is updated automatically by GitHub Actions CI pipeline    */}}
+{{/* ------------------------------------------------------------------ */}}
+{{- if .Values.reviewsService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: reviews-service
+    {{- include "ecommerce.labels" . | nindent 4 }}
+  annotations:
+    deployment.kubernetes.io/image-tag: {{ .Values.reviewsService.imageTag | quote }}
+spec:
+  replicas: {{ .Values.reviewsService.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: reviews-service
+  template:
+    metadata:
+      labels:
+        app: reviews-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.reviewsService.port | quote }}
+        prometheus.io/path: "/metrics"
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: ["reviews-service"]
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+      containers:
+        - name: reviews-service
+          image: {{ printf "%s:%s" .Values.reviewsService.image .Values.reviewsService.imageTag }}
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: {{ .Values.reviewsService.port }}
+          env:
+            {{- range $key, $val := .Values.reviewsService.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            {{- toYaml .Values.reviewsService.resources | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: {{ .Values.reviewsService.port }}
+            failureThreshold: 20
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: {{ .Values.reviewsService.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: {{ .Values.reviewsService.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviews-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: reviews-service
+spec:
+  type: ClusterIP
+  selector:
+    app: reviews-service
+  ports:
+    - name: http
+      port: {{ .Values.reviewsService.port }}
+      targetPort: {{ .Values.reviewsService.port }}
+{{- end }}

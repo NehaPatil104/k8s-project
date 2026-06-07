@@ -1,0 +1,82 @@
+# ArgoCD Application — the core ArgoCD resource.
+# This tells ArgoCD:
+#   - WHERE to find the desired state (git repo + path)
+#   - WHERE to deploy it (K8s cluster + namespace)
+#   - HOW to deploy it (Helm)
+#   - WHEN to sync (automatically on every git change)
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ecommerce
+  namespace: argocd
+  labels:
+    app: ecommerce
+  # Finalizer — when you delete this Application in ArgoCD,
+  # it also deletes all the K8s resources it manages (cascade delete)
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  # ── Source — where ArgoCD reads the desired state from ──────────────────────
+  source:
+    repoURL: https://github.com/NehaPatil104/k8s-project.git
+    targetRevision: main          # Watch the main branch
+    path: kind/helm/ecommerce     # Path to the Helm chart inside the repo
+
+    # Helm-specific config
+    helm:
+      releaseName: ecommerce
+      # You can override values here per environment
+      # These override values.yaml in the chart
+      valueFiles:
+        - values.yaml
+      # Example: override specific values for this ArgoCD-managed deployment
+      parameters:
+        - name: global.imageTag
+          value: "v0.10.5"
+
+  # ── Destination — where ArgoCD deploys to ───────────────────────────────────
+  destination:
+    # https://kubernetes.default.svc = the cluster ArgoCD itself is running in
+    # For remote clusters, this would be the cluster API endpoint
+    server: https://kubernetes.default.svc
+    namespace: ecommerce
+
+  # ── Sync Policy — how ArgoCD keeps things in sync ───────────────────────────
+  syncPolicy:
+    automated:
+      # Automatically deploy when git changes are detected
+      prune: true      # Delete K8s resources that are removed from git
+      selfHeal: true   # If someone manually changes K8s, ArgoCD reverts it
+                       # This enforces git as the single source of truth
+
+    syncOptions:
+      # Create the namespace if it doesn't exist
+      - CreateNamespace=true
+      # Don't fail sync if some resources are still being deleted
+      - PrunePropagationPolicy=foreground
+      # Apply resources one at a time (safer for stateful workloads)
+      - RespectIgnoreDifferences=true
+
+    # Retry failed syncs automatically
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2          # Exponential backoff: 5s, 10s, 20s, 40s, 80s
+        maxDuration: 3m
+
+  # ── Ignore differences ──────────────────────────────────────────────────────
+  # Some fields get modified by K8s automatically (e.g. HPA current replicas).
+  # Ignore these so ArgoCD doesn't keep trying to "fix" them.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas   # HPA manages this — don't override it
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+      jsonPointers:
+        - /spec/metrics
