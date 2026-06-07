@@ -8,7 +8,7 @@
 #   1. Lint Helm chart
 #   2. Validate K8s manifests (dry-run)
 #   3. Security scan manifests (checkov)
-#   4. Notify ArgoCD to sync (optional — ArgoCD also auto-polls)
+#   4. Notify ArgoCD to sync
 # =============================================================================
 
 name: CD — Helm Validate & Sync
@@ -50,7 +50,7 @@ jobs:
       - name: Helm template (dry-run render)
         run: |
           echo "Rendering Helm templates..."
-          helm template ecommerce kind/helm/ecommerce --debug > /tmp/rendered.yaml
+          helm template ecommerce kind/helm/ecommerce > /tmp/rendered.yaml
           echo "✓ Templates rendered successfully"
           echo "--- Rendered manifest line count ---"
           wc -l /tmp/rendered.yaml
@@ -61,8 +61,10 @@ jobs:
       - name: Validate manifests with kubectl dry-run
         run: |
           echo "Validating rendered manifests..."
+          # FIX: add --validate=false — no cluster available on GitHub runner
+          # This still catches YAML structure errors without needing a live cluster
           helm template ecommerce kind/helm/ecommerce | \
-            kubectl apply --dry-run=client -f - || true
+            kubectl apply --dry-run=client --validate=false -f -
           echo "✓ Manifest validation complete"
 
   # ── Job 2: Security Scan ─────────────────────────────────────────────────────
@@ -81,20 +83,23 @@ jobs:
 
       - name: Render Helm templates for scanning
         run: |
-          helm template ecommerce kind/helm/ecommerce > /tmp/manifests.yaml
+          # FIX: write to GITHUB_WORKSPACE instead of /tmp
+          # Checkov runs inside a Docker container — /tmp on the runner is NOT
+          # accessible inside that container. GITHUB_WORKSPACE IS mounted.
+          helm template ecommerce kind/helm/ecommerce > $GITHUB_WORKSPACE/manifests.yaml
+          echo "Manifest written to: $GITHUB_WORKSPACE/manifests.yaml"
+          wc -l $GITHUB_WORKSPACE/manifests.yaml
 
-      # Checkov scans K8s manifests for security misconfigurations
-      # e.g. containers running as root, missing resource limits, etc.
       - name: Run Checkov security scan
         uses: bridgecrewio/checkov-action@master
         with:
-          file: /tmp/manifests.yaml
+          # FIX: use workspace-relative path — accessible inside Docker container
+          file: manifests.yaml
           framework: kubernetes
-          # Don't fail the build on findings — just report them (for learning)
           soft_fail: true
         continue-on-error: true
 
-  # ── Job 3: ArgoCD Sync (only on main push) ───────────────────────────────────
+  # ── Job 3: ArgoCD Sync ───────────────────────────────────────────────────────
   argocd-sync:
     name: Trigger ArgoCD Sync
     runs-on: ubuntu-latest
@@ -106,7 +111,6 @@ jobs:
         run: |
           echo "ArgoCD will automatically detect the git change and sync."
           echo "ArgoCD polls the repo every 3 minutes by default."
-          echo "To force immediate sync, use the ArgoCD CLI or UI."
           echo ""
-          echo "ArgoCD sync command (if CLI is configured):"
+          echo "To force immediate sync via ArgoCD CLI:"
           echo "  argocd app sync ecommerce --auth-token \$ARGOCD_TOKEN"
