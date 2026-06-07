@@ -237,7 +237,7 @@ reviewsService:
   replicas: 2
   # Full image path — tag is updated by CI pipeline on every push to main
   image: "nehapatil104/reviews-service"
-  imageTag: "latest"    # ← GitHub Actions updates this automatically
+  imageTag: "main"    # ← GitHub Actions updates this automatically
   port: 8090
   resources:
     requests:
