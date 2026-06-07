@@ -1,7 +1,7 @@
-# Kubernetes Learning Project — Online Boutique
+# Kubernetes Learning Project — Online Boutique (Kind)
 
 Production-style K8s manifests wrapping Google's [Online Boutique](https://github.com/GoogleCloudPlatform/microservices-demo) microservices demo.
-All K8s YAML is written from scratch to cover the full breadth of concepts.
+All K8s YAML is written from scratch to cover the full breadth of Kubernetes concepts.
 
 ---
 
@@ -15,20 +15,57 @@ All K8s YAML is written from scratch to cover the full breadth of concepts.
           [productcatalog] [cart] [checkout] [recommendation] [currency] [ad]
                               |       |
                            [Redis] [payment] [shipping] [email]
+                                        |
+                                  [loadgenerator]
 ```
 
 11 real microservices (Go, Python, Node.js, Java, C#) communicating over **gRPC**.
 
 ---
 
+## Project Structure
+
+```
+kind/
+├── kind-config.yaml              # Kind cluster definition (1 control-plane + 3 workers)
+├── k8s/                          # Raw Kubernetes manifests (Option 1)
+│   ├── namespaces/               # Namespace, ResourceQuota, LimitRange
+│   ├── rbac/                     # ServiceAccounts, Roles, RoleBindings
+│   ├── configmaps/               # App configuration (env vars)
+│   ├── secrets/                  # Sensitive data
+│   ├── storage/                  # StorageClass
+│   ├── statefulsets/             # Redis (StatefulSet + PVC)
+│   ├── deployments/              # All 11 service Deployments
+│   ├── services/                 # ClusterIP + NodePort Services
+│   ├── ingress/                  # NGINX Ingress routing rules
+│   ├── hpa/                      # HorizontalPodAutoscalers
+│   ├── pdb/                      # PodDisruptionBudgets
+│   ├── jobs/                     # One-time smoke test Job
+│   ├── cronjobs/                 # Scheduled health check + cleanup
+│   └── network-policies/         # Zero-trust NetworkPolicies
+├── helm/                         # Helm chart (Option 2)
+│   └── ecommerce/
+│       ├── Chart.yaml            # Chart metadata
+│       ├── values.yaml           # All configurable values
+│       └── templates/            # Templated K8s manifests
+└── scripts/
+    ├── setup-kind.sh             # Automated setup using raw kubectl
+    ├── setup-helm.sh             # Automated setup using Helm
+    ├── explore.sh                # Cluster overview commands
+    └── teardown.sh               # Delete the cluster
+```
+
+---
+
 ## Prerequisites
 
-| Tool | Install |
-|------|---------|
-| Docker Desktop | https://www.docker.com/products/docker-desktop |
-| kind | `winget install Kubernetes.kind` |
-| kubectl | `winget install Kubernetes.kubectl` |
-| helm | `winget install Helm.Helm` |
+| Tool | Install | Purpose |
+|------|---------|---------|
+| Docker Desktop | https://www.docker.com/products/docker-desktop | Runs Kind nodes as containers |
+| kind | `winget install Kubernetes.kind` | Creates local K8s cluster |
+| kubectl | `winget install Kubernetes.kubectl` | Talks to the cluster |
+| helm | `winget install Helm.Helm` | Package manager for K8s |
+| k9s *(optional)* | `winget install k9s` | Terminal UI for cluster visualization |
 
 ---
 
@@ -37,73 +74,108 @@ All K8s YAML is written from scratch to cover the full breadth of concepts.
 | Method | Script | Best for |
 |--------|--------|----------|
 | **Raw kubectl** | `bash scripts/setup-kind.sh` | Learning each K8s resource individually |
-| **Helm** | `bash scripts/setup-helm.sh` | Learning Helm, deploying as a single unit |
+| **Helm** | `bash scripts/setup-helm.sh` | Learning Helm, deploying as a single packaged unit |
 
 Both deploy the exact same app — just different methods.
 
 ---
 
-## Option 1 — Raw kubectl (Manual YAML)
+## Option 1 — Raw kubectl
 
 ```bash
-# 1. Create cluster + deploy everything using raw manifests
+# Deploy everything using raw manifests
 bash scripts/setup-kind.sh
-
-# 2. Add to hosts file (run Notepad as Administrator on Windows):
-#    C:\Windows\System32\drivers\etc\hosts → 127.0.0.1  ecommerce.local
-
-# 3. Open the store:
-#    http://ecommerce.local
-#    http://localhost:30080   (no hosts file needed)
 ```
+
+What the script does:
+1. Creates the Kind cluster from `kind-config.yaml`
+2. Installs NGINX Ingress Controller + patches nodeSelector to control-plane
+3. Installs Metrics Server (needed for HPA)
+4. Applies all manifests in order (namespaces → rbac → config → statefulsets → deployments → services → ingress → hpa → pdb → cronjobs)
+5. Runs a smoke test Job
+6. Prints the access URL
 
 ---
 
 ## Option 2 — Helm
 
 ```bash
-# 1. Create the Kind cluster first (only the cluster, no app yet)
-kind create cluster --config kind-config.yaml
-
-# Install NGINX Ingress Controller
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-kubectl wait --namespace ingress-nginx \
-  --for=condition=ready pod \
-  --selector=app.kubernetes.io/component=controller \
-  --timeout=120s
-
-# 2. Deploy everything using Helm (one command!)
-cd <path-to>/k8s-project/kind
-helm install ecommerce helm/ecommerce
-
-# OR use the automated script which does all of the above
+# Deploy everything using the Helm chart
 bash scripts/setup-helm.sh
 ```
+
+What the script does:
+1. Creates the Kind cluster from `kind-config.yaml`
+2. Installs NGINX Ingress Controller + patches nodeSelector to control-plane
+3. Runs `helm lint` to validate the chart
+4. Runs `helm install ecommerce helm/ecommerce`
+5. Waits for all pods to be ready
+6. Prints access URL + useful Helm commands
 
 ### Helm Quick Reference
 
 ```bash
-# See what's deployed
+# See what's installed
 helm list
 helm status ecommerce
 
-# Upgrade — change any value without redeploying everything
+# See rendered YAML without applying anything
+helm template ecommerce helm/ecommerce
+
+# Upgrade — change values without full redeploy
 helm upgrade ecommerce helm/ecommerce --set frontend.replicas=3
 helm upgrade ecommerce helm/ecommerce --set global.imageTag=v0.10.4
 helm upgrade ecommerce helm/ecommerce --set loadgenerator.enabled=false
 
-# See rendered YAML without applying
-helm template ecommerce helm/ecommerce
-
 # See release history
 helm history ecommerce
 
-# Roll back to a previous version
+# Roll back to a previous revision
 helm rollback ecommerce 1
 
 # Uninstall everything
 helm uninstall ecommerce
 ```
+
+---
+
+## Accessing the App
+
+After either setup script completes:
+
+```
+# 1. Add to hosts file (run Notepad as Administrator on Windows)
+#    File: C:\Windows\System32\drivers\etc\hosts
+#    Add:  127.0.0.1  ecommerce.local
+
+# 2. Open in browser
+http://ecommerce.local          ← requires hosts file entry
+http://localhost:30080          ← NodePort, no hosts file needed
+```
+
+---
+
+## Important: Ingress on Kind
+
+The NGINX Ingress controller **must run on the control-plane node** because that is the only node with Docker port 80 mapped to the host machine.
+
+```
+Browser → localhost:80
+              ↓  (Docker port mapping — only on control-plane)
+         control-plane container port 80
+              ↓  (NGINX must be HERE)
+         NGINX Ingress → frontend service → frontend pods
+```
+
+The Kind ingress manifest's nodeSelector only has `kubernetes.io/os=linux` — it does NOT pin to control-plane by default. Both setup scripts patch this automatically:
+
+```bash
+kubectl patch deployment ingress-nginx-controller -n ingress-nginx \
+  --type=json \
+  -p='[{"op":"add","path":"/spec/template/spec/nodeSelector","value":{"ingress-ready":"true","kubernetes.io/os":"linux"}}]'
+```
+
+If you ever reinstall the ingress controller manually, always apply this patch afterwards.
 
 ---
 
@@ -118,7 +190,7 @@ helm uninstall ecommerce
 | ServiceAccounts | [`k8s/rbac/service-accounts.yaml`](k8s/rbac/service-accounts.yaml) | [`helm/ecommerce/templates/rbac.yaml`](helm/ecommerce/templates/rbac.yaml) |
 | Roles + RoleBindings | [`k8s/rbac/roles.yaml`](k8s/rbac/roles.yaml) | [`helm/ecommerce/templates/rbac.yaml`](helm/ecommerce/templates/rbac.yaml) |
 | StorageClass | [`k8s/storage/storage-class.yaml`](k8s/storage/storage-class.yaml) | — |
-| ConfigMap (env vars) | [`k8s/configmaps/services-config.yaml`](k8s/configmaps/services-config.yaml) | values injected via `helm/ecommerce/values.yaml` |
+| ConfigMap (env vars) | [`k8s/configmaps/services-config.yaml`](k8s/configmaps/services-config.yaml) | values injected via [`helm/ecommerce/values.yaml`](helm/ecommerce/values.yaml) |
 | StatefulSet + PVC | [`k8s/statefulsets/redis-cart.yaml`](k8s/statefulsets/redis-cart.yaml) | [`helm/ecommerce/templates/redis.yaml`](helm/ecommerce/templates/redis.yaml) |
 | Tolerations + NodeAffinity | [`k8s/statefulsets/redis-cart.yaml`](k8s/statefulsets/redis-cart.yaml) | [`helm/ecommerce/templates/redis.yaml`](helm/ecommerce/templates/redis.yaml) |
 | Deployment + Rolling Update | [`k8s/deployments/frontend.yaml`](k8s/deployments/frontend.yaml) | [`helm/ecommerce/templates/deployments.yaml`](helm/ecommerce/templates/deployments.yaml) |
@@ -136,37 +208,25 @@ helm uninstall ecommerce
 | CronJob | [`k8s/cronjobs/report-cronjob.yaml`](k8s/cronjobs/report-cronjob.yaml) | — |
 | NetworkPolicy (allowlist) | [`k8s/network-policies/network-policies.yaml`](k8s/network-policies/network-policies.yaml) | — |
 | Helm values + templating | — | [`helm/ecommerce/values.yaml`](helm/ecommerce/values.yaml) |
-| Helm helpers | — | [`helm/ecommerce/templates/_helpers.tpl`](helm/ecommerce/templates/_helpers.tpl) |
+| Helm named templates | — | [`helm/ecommerce/templates/_helpers.tpl`](helm/ecommerce/templates/_helpers.tpl) |
 
 ---
 
-## Manual kubectl Step-by-Step
+## Helm Chart Structure
 
-```bash
-# Create cluster
-kind create cluster --config kind-config.yaml
-
-# Install NGINX Ingress
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-
-# Foundation
-kubectl apply -f k8s/namespaces/
-kubectl apply -f k8s/rbac/
-kubectl apply -f k8s/configmaps/
-
-# Stateful workloads
-kubectl apply -f k8s/statefulsets/
-kubectl get pods -n ecommerce -w   # Watch Redis start
-
-# Application
-kubectl apply -f k8s/deployments/
-kubectl apply -f k8s/services/
-kubectl apply -f k8s/ingress/
-
-# Resilience
-kubectl apply -f k8s/hpa/
-kubectl apply -f k8s/pdb/
-kubectl apply -f k8s/cronjobs/
+```
+helm/ecommerce/
+├── Chart.yaml           # Chart metadata (name, version, description)
+├── values.yaml          # All configurable values — the single source of truth
+└── templates/
+    ├── _helpers.tpl     # Reusable named templates (labels, image path)
+    ├── namespace.yaml   # Namespace + ResourceQuota + LimitRange
+    ├── rbac.yaml        # ServiceAccount + Role + RoleBinding
+    ├── deployments.yaml # All 11 service Deployments + ClusterIP Services
+    ├── redis.yaml       # Redis StatefulSet + Service
+    ├── ingress.yaml     # NGINX Ingress routing rules
+    ├── hpa.yaml         # HorizontalPodAutoscalers
+    └── pdb.yaml         # PodDisruptionBudgets
 ```
 
 ---
@@ -176,6 +236,9 @@ kubectl apply -f k8s/cronjobs/
 ```bash
 # See all pods and which node they're on
 kubectl get pods -n ecommerce -o wide
+
+# Watch pods start up
+kubectl get pods -n ecommerce -w
 
 # Follow frontend logs
 kubectl logs -f deployment/frontend -n ecommerce
@@ -195,47 +258,55 @@ kubectl exec -it deployment/frontend -n ecommerce -- sh
 # See PersistentVolumes created for Redis
 kubectl get pv,pvc -n ecommerce
 
+# Check ingress controller is on control-plane
+kubectl get pods -n ingress-nginx -o wide
+
 # Simulate a node drain (tests PDB)
 kubectl drain ecommerce-cluster-worker --ignore-daemonsets --delete-emptydir-data
 kubectl uncordon ecommerce-cluster-worker
 
-# See full cluster overview
+# Full cluster overview
 bash scripts/explore.sh
 ```
 
 ---
 
-## Helm Chart Structure
+## Troubleshooting
 
-```
-helm/ecommerce/
-├── Chart.yaml          # Chart metadata (name, version, description)
-├── values.yaml         # All configurable values — the single source of truth
-└── templates/
-    ├── _helpers.tpl    # Reusable template functions
-    ├── namespace.yaml  # Namespace + ResourceQuota + LimitRange
-    ├── rbac.yaml       # ServiceAccount + Role + RoleBinding
-    ├── deployments.yaml # All 11 service Deployments + Services
-    ├── redis.yaml      # Redis StatefulSet + Service
-    ├── ingress.yaml    # Ingress
-    ├── hpa.yaml        # HorizontalPodAutoscalers
-    └── pdb.yaml        # PodDisruptionBudgets
-```
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| `ERR_EMPTY_RESPONSE` on ecommerce.local | Ingress controller on wrong node | Patch nodeSelector (see Ingress section above) |
+| `ImagePullBackOff` | Network can't reach registry | Check internet, retry `kubectl delete pod` |
+| `FailedCreate` on pods | LimitRange violation | Check `kubectl describe replicaset` for min/max errors |
+| `cluster unreachable` in Helm/kubectl | Wrong kubectl context | `kubectl config use-context kind-ecommerce-cluster` |
+| Helm release already exists | Previous install not cleaned | `helm uninstall ecommerce -n default` |
+| Pods stuck in `Pending` | Node taint not tolerated | Check tolerations in pod spec |
 
 ---
 
 ## Teardown
 
 ```bash
-# Helm teardown
+# Helm teardown (removes all K8s resources created by Helm)
 helm uninstall ecommerce
 
 # Raw kubectl teardown
 bash scripts/teardown.sh
 
-# Or just wipe the namespace (keeps the cluster)
+# Delete just the namespace (keeps the cluster running)
 kubectl delete namespace ecommerce
 
-# Delete the Kind cluster entirely
+# Delete the Kind cluster entirely (removes everything)
 kind delete cluster --name ecommerce-cluster
 ```
+
+---
+
+## Known Issues & Fixes Applied
+
+| Issue | Fix |
+|-------|-----|
+| NGINX ingress controller lands on worker node instead of control-plane | Both setup scripts patch the Deployment nodeSelector to require `ingress-ready=true` |
+| `SHOPPING_ASSISTANT_SERVICE_ADDR` not set — frontend panics | Added to `values.yaml` and `configmaps/services-config.yaml` |
+| Init containers below LimitRange minimum (10m CPU / 16Mi RAM) | Lowered LimitRange `min` and raised init container requests |
+| Helm release deployed to `default` namespace instead of `ecommerce` | Namespace is created inside the Helm chart templates |
