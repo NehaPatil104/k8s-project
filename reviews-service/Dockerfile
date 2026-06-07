@@ -20,7 +20,9 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install ALL dependencies (including devDependencies for tests)
-RUN npm ci
+# Use npm install — works with or without package-lock.json
+# Once package-lock.json is committed, switch back to npm ci for reproducible installs
+RUN npm install
 
 # Copy source code
 COPY . .
@@ -39,7 +41,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install ONLY production dependencies
-RUN npm ci --only=production && npm cache clean --force
+RUN npm install --only=production && npm cache clean --force
 
 # Copy source from builder stage
 COPY --from=builder /app/src ./src
