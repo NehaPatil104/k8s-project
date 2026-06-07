@@ -1,13 +1,14 @@
 apiVersion: v2
 name: ecommerce
-description: Production-style e-commerce platform — Kubernetes learning project
+description: Online Boutique — Production-style Kubernetes learning project
 type: application
-version: 0.1.0
-appVersion: "1.0.0"
+version: 1.0.0
+appVersion: "v0.10.5"
 keywords:
   - ecommerce
   - microservices
   - kubernetes
+  - online-boutique
 maintainers:
   - name: neha.patil
-    email: neha.patil@coditas.com
+    email: nehaspatil125000@gmail.com

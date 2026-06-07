@@ -1,0 +1,845 @@
+{{/*
+deployments.yaml — Renders a Deployment + Service for every enabled service.
+
+Instead of writing 11 separate Deployment files, we use a single template
+and loop over each service's values block. This is the core power of Helm —
+DRY (Don't Repeat Yourself) configuration.
+
+For each service we render:
+  - Deployment  (with probes, resources, env vars, anti-affinity)
+  - Service     (ClusterIP pointing to the deployment)
+*/}}
+
+{{/* ------------------------------------------------------------------ */}}
+{{/* frontend                                                             */}}
+{{/* ------------------------------------------------------------------ */}}
+{{- if .Values.frontend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: frontend
+    {{- include "ecommerce.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      serviceAccountName: frontend-sa
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: ["frontend"]
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: frontend
+          image: {{ printf "%s/%s:%s" .Values.global.imageRegistry .Values.frontend.image .Values.global.imageTag }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.frontend.port }}
+          env:
+            {{- range $key, $val := .Values.frontend.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /_healthz
+              port: {{ .Values.frontend.port }}
+            failureThreshold: 20
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /_healthz
+              port: {{ .Values.frontend.port }}
+              httpHeaders:
+                - name: Cookie
+                  value: shop_session-id=x-liveness-probe
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /_healthz
+              port: {{ .Values.frontend.port }}
+              httpHeaders:
+                - name: Cookie
+                  value: shop_session-id=x-readiness-probe
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      port: {{ .Values.frontend.servicePort }}
+      targetPort: {{ .Values.frontend.port }}
+---
+# NodePort for direct access without Ingress (http://localhost:30080)
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-external
+  namespace: {{ .Values.global.namespace }}
+spec:
+  type: NodePort
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: {{ .Values.frontend.port }}
+      nodePort: 30080
+{{- end }}
+
+---
+{{/* ------------------------------------------------------------------ */}}
+{{/* cartservice                                                          */}}
+{{/* ------------------------------------------------------------------ */}}
+{{- if .Values.cartservice.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cartservice
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: cartservice
+    {{- include "ecommerce.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.cartservice.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: cartservice
+  template:
+    metadata:
+      labels:
+        app: cartservice
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: ["cartservice"]
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      initContainers:
+        - name: wait-for-redis
+          image: busybox:1.36
+          command: ["sh", "-c", "until nc -z redis-cart {{ .Values.redis.port }}; do sleep 2; done"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      containers:
+        - name: cartservice
+          image: {{ printf "%s/%s:%s" .Values.global.imageRegistry .Values.cartservice.image .Values.global.imageTag }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.cartservice.port }}
+          env:
+            {{- range $key, $val := .Values.cartservice.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.cartservice.resources | nindent 12 }}
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.cartservice.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.cartservice.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cartservice
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: cartservice
+spec:
+  type: ClusterIP
+  selector:
+    app: cartservice
+  ports:
+    - name: grpc
+      port: {{ .Values.cartservice.port }}
+      targetPort: {{ .Values.cartservice.port }}
+{{- end }}
+
+---
+{{/* ------------------------------------------------------------------ */}}
+{{/* productcatalogservice                                                */}}
+{{/* ------------------------------------------------------------------ */}}
+{{- if .Values.productcatalogservice.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: productcatalogservice
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: productcatalogservice
+    {{- include "ecommerce.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.productcatalogservice.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: productcatalogservice
+  template:
+    metadata:
+      labels:
+        app: productcatalogservice
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: productcatalogservice
+          image: {{ printf "%s/%s:%s" .Values.global.imageRegistry .Values.productcatalogservice.image .Values.global.imageTag }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.productcatalogservice.port }}
+          env:
+            {{- range $key, $val := .Values.productcatalogservice.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.productcatalogservice.resources | nindent 12 }}
+          livenessProbe:
+            grpc:
+              port: {{ .Values.productcatalogservice.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            grpc:
+              port: {{ .Values.productcatalogservice.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: productcatalogservice
+  namespace: {{ .Values.global.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: productcatalogservice
+  ports:
+    - name: grpc
+      port: {{ .Values.productcatalogservice.port }}
+      targetPort: {{ .Values.productcatalogservice.port }}
+{{- end }}
+
+---
+{{/* ------------------------------------------------------------------ */}}
+{{/* checkoutservice                                                      */}}
+{{/* ------------------------------------------------------------------ */}}
+{{- if .Values.checkoutservice.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkoutservice
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: checkoutservice
+    {{- include "ecommerce.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.checkoutservice.replicas }}
+  selector:
+    matchLabels:
+      app: checkoutservice
+  template:
+    metadata:
+      labels:
+        app: checkoutservice
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: checkoutservice
+          image: {{ printf "%s/%s:%s" .Values.global.imageRegistry .Values.checkoutservice.image .Values.global.imageTag }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.checkoutservice.port }}
+          env:
+            {{- range $key, $val := .Values.checkoutservice.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.checkoutservice.resources | nindent 12 }}
+          livenessProbe:
+            grpc:
+              port: {{ .Values.checkoutservice.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            grpc:
+              port: {{ .Values.checkoutservice.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkoutservice
+  namespace: {{ .Values.global.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: checkoutservice
+  ports:
+    - name: grpc
+      port: {{ .Values.checkoutservice.port }}
+      targetPort: {{ .Values.checkoutservice.port }}
+{{- end }}
+
+---
+{{/* paymentservice */}}
+{{- if .Values.paymentservice.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paymentservice
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: paymentservice
+    {{- include "ecommerce.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.paymentservice.replicas }}
+  selector:
+    matchLabels:
+      app: paymentservice
+  template:
+    metadata:
+      labels:
+        app: paymentservice
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: paymentservice
+          image: {{ printf "%s/%s:%s" .Values.global.imageRegistry .Values.paymentservice.image .Values.global.imageTag }}
+          ports:
+            - containerPort: {{ .Values.paymentservice.port }}
+          env:
+            {{- range $key, $val := .Values.paymentservice.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.paymentservice.resources | nindent 12 }}
+          livenessProbe:
+            grpc:
+              port: {{ .Values.paymentservice.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            grpc:
+              port: {{ .Values.paymentservice.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paymentservice
+  namespace: {{ .Values.global.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: paymentservice
+  ports:
+    - port: {{ .Values.paymentservice.port }}
+      targetPort: {{ .Values.paymentservice.port }}
+{{- end }}
+
+---
+{{/* shippingservice */}}
+{{- if .Values.shippingservice.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shippingservice
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: shippingservice
+    {{- include "ecommerce.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.shippingservice.replicas }}
+  selector:
+    matchLabels:
+      app: shippingservice
+  template:
+    metadata:
+      labels:
+        app: shippingservice
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: shippingservice
+          image: {{ printf "%s/%s:%s" .Values.global.imageRegistry .Values.shippingservice.image .Values.global.imageTag }}
+          ports:
+            - containerPort: {{ .Values.shippingservice.port }}
+          env:
+            {{- range $key, $val := .Values.shippingservice.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.shippingservice.resources | nindent 12 }}
+          livenessProbe:
+            grpc:
+              port: {{ .Values.shippingservice.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          readinessProbe:
+            grpc:
+              port: {{ .Values.shippingservice.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shippingservice
+  namespace: {{ .Values.global.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: shippingservice
+  ports:
+    - port: {{ .Values.shippingservice.port }}
+      targetPort: {{ .Values.shippingservice.port }}
+{{- end }}
+
+---
+{{/* currencyservice */}}
+{{- if .Values.currencyservice.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: currencyservice
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: currencyservice
+    {{- include "ecommerce.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.currencyservice.replicas }}
+  selector:
+    matchLabels:
+      app: currencyservice
+  template:
+    metadata:
+      labels:
+        app: currencyservice
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: currencyservice
+          image: {{ printf "%s/%s:%s" .Values.global.imageRegistry .Values.currencyservice.image .Values.global.imageTag }}
+          ports:
+            - containerPort: {{ .Values.currencyservice.port }}
+          env:
+            {{- range $key, $val := .Values.currencyservice.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.currencyservice.resources | nindent 12 }}
+          livenessProbe:
+            grpc:
+              port: {{ .Values.currencyservice.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            grpc:
+              port: {{ .Values.currencyservice.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: currencyservice
+  namespace: {{ .Values.global.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: currencyservice
+  ports:
+    - port: {{ .Values.currencyservice.port }}
+      targetPort: {{ .Values.currencyservice.port }}
+{{- end }}
+
+---
+{{/* emailservice */}}
+{{- if .Values.emailservice.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: emailservice
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: emailservice
+    {{- include "ecommerce.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.emailservice.replicas }}
+  selector:
+    matchLabels:
+      app: emailservice
+  template:
+    metadata:
+      labels:
+        app: emailservice
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: emailservice
+          image: {{ printf "%s/%s:%s" .Values.global.imageRegistry .Values.emailservice.image .Values.global.imageTag }}
+          ports:
+            - containerPort: {{ .Values.emailservice.port }}
+          env:
+            {{- range $key, $val := .Values.emailservice.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.emailservice.resources | nindent 12 }}
+          livenessProbe:
+            grpc:
+              port: {{ .Values.emailservice.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          readinessProbe:
+            grpc:
+              port: {{ .Values.emailservice.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: emailservice
+  namespace: {{ .Values.global.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: emailservice
+  ports:
+    - port: {{ .Values.emailservice.servicePort }}
+      targetPort: {{ .Values.emailservice.port }}
+{{- end }}
+
+---
+{{/* recommendationservice */}}
+{{- if .Values.recommendationservice.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recommendationservice
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: recommendationservice
+    {{- include "ecommerce.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.recommendationservice.replicas }}
+  selector:
+    matchLabels:
+      app: recommendationservice
+  template:
+    metadata:
+      labels:
+        app: recommendationservice
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: recommendationservice
+          image: {{ printf "%s/%s:%s" .Values.global.imageRegistry .Values.recommendationservice.image .Values.global.imageTag }}
+          ports:
+            - containerPort: {{ .Values.recommendationservice.port }}
+          env:
+            {{- range $key, $val := .Values.recommendationservice.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.recommendationservice.resources | nindent 12 }}
+          livenessProbe:
+            grpc:
+              port: {{ .Values.recommendationservice.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          readinessProbe:
+            grpc:
+              port: {{ .Values.recommendationservice.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recommendationservice
+  namespace: {{ .Values.global.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: recommendationservice
+  ports:
+    - port: {{ .Values.recommendationservice.port }}
+      targetPort: {{ .Values.recommendationservice.port }}
+{{- end }}
+
+---
+{{/* adservice */}}
+{{- if .Values.adservice.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adservice
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: adservice
+    {{- include "ecommerce.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.adservice.replicas }}
+  selector:
+    matchLabels:
+      app: adservice
+  template:
+    metadata:
+      labels:
+        app: adservice
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: adservice
+          image: {{ printf "%s/%s:%s" .Values.global.imageRegistry .Values.adservice.image .Values.global.imageTag }}
+          ports:
+            - containerPort: {{ .Values.adservice.port }}
+          env:
+            {{- range $key, $val := .Values.adservice.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.adservice.resources | nindent 12 }}
+          livenessProbe:
+            grpc:
+              port: {{ .Values.adservice.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          readinessProbe:
+            grpc:
+              port: {{ .Values.adservice.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adservice
+  namespace: {{ .Values.global.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: adservice
+  ports:
+    - port: {{ .Values.adservice.port }}
+      targetPort: {{ .Values.adservice.port }}
+{{- end }}
+
+---
+{{/* loadgenerator */}}
+{{- if .Values.loadgenerator.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgenerator
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: loadgenerator
+    {{- include "ecommerce.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.loadgenerator.replicas }}
+  selector:
+    matchLabels:
+      app: loadgenerator
+  template:
+    metadata:
+      labels:
+        app: loadgenerator
+    spec:
+      initContainers:
+        - name: wait-for-frontend
+          image: busybox:1.36
+          command: ["sh", "-c", "until wget -q --spider http://frontend:80/_healthz 2>/dev/null; do sleep 3; done"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      containers:
+        - name: loadgenerator
+          image: {{ printf "%s/%s:%s" .Values.global.imageRegistry .Values.loadgenerator.image .Values.global.imageTag }}
+          env:
+            {{- range $key, $val := .Values.loadgenerator.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.loadgenerator.resources | nindent 12 }}
+      terminationGracePeriodSeconds: 5
+{{- end }}

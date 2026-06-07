@@ -1,82 +1,271 @@
-# Default values — override with: helm install ecommerce . -f my-values.yaml
-# or per-value: helm install ecommerce . --set userService.replicas=3
+# =============================================================================
+# values.yaml — Default configuration for the ecommerce Helm chart
+#
+# Override any value at install time:
+#   helm install ecommerce . --set frontend.replicas=3
+#   helm install ecommerce . -f my-overrides.yaml
+# =============================================================================
 
-namespace: ecommerce
-
-userService:
-  replicas: 2
-  image: node:18-alpine
-  port: 3000
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-  hpa:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 10
-    cpuUtilization: 70
-
-productService:
-  replicas: 2
-  image: node:18-alpine
-  port: 3001
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-  hpa:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 10
-    cpuUtilization: 70
-
-orderService:
-  replicas: 2
-  image: node:18-alpine
-  port: 3002
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
+global:
+  namespace: ecommerce
+  imageRegistry: "us-central1-docker.pkg.dev/google-samples/microservices-demo"
+  imageTag: "v0.10.5"
 
 frontend:
+  enabled: true
   replicas: 2
-  image: nginx:1.25-alpine
-  port: 80
-
-postgresql:
-  storageClass: standard
-  storage: 1Gi
+  image: frontend
+  port: 8080
+  servicePort: 80
   resources:
     requests:
       cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  env:
+    PRODUCT_CATALOG_SERVICE_ADDR: "productcatalogservice:3550"
+    CURRENCY_SERVICE_ADDR: "currencyservice:7000"
+    CART_SERVICE_ADDR: "cartservice:7070"
+    RECOMMENDATION_SERVICE_ADDR: "recommendationservice:8080"
+    SHIPPING_SERVICE_ADDR: "shippingservice:50051"
+    CHECKOUT_SERVICE_ADDR: "checkoutservice:5050"
+    AD_SERVICE_ADDR: "adservice:9555"
+    SHOPPING_ASSISTANT_SERVICE_ADDR: "shoppingassistantservice:80"
+    ENABLE_PROFILER: "0"
+    ENV_PLATFORM: "local"
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    cpuUtilization: 60
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+cartservice:
+  enabled: true
+  replicas: 2
+  image: cartservice
+  port: 7070
+  resources:
+    requests:
+      cpu: 200m
+      memory: 64Mi
+    limits:
+      cpu: 300m
+      memory: 128Mi
+  env:
+    REDIS_ADDR: "redis-cart:6379"
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    cpuUtilization: 70
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+productcatalogservice:
+  enabled: true
+  replicas: 2
+  image: productcatalogservice
+  port: 3550
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  env:
+    PORT: "3550"
+    DISABLE_PROFILER: "1"
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    cpuUtilization: 70
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+checkoutservice:
+  enabled: true
+  replicas: 2
+  image: checkoutservice
+  port: 5050
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  env:
+    PORT: "5050"
+    PRODUCT_CATALOG_SERVICE_ADDR: "productcatalogservice:3550"
+    SHIPPING_SERVICE_ADDR: "shippingservice:50051"
+    PAYMENT_SERVICE_ADDR: "paymentservice:50051"
+    EMAIL_SERVICE_ADDR: "emailservice:5000"
+    CURRENCY_SERVICE_ADDR: "currencyservice:7000"
+    CART_SERVICE_ADDR: "cartservice:7070"
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+paymentservice:
+  enabled: true
+  replicas: 1
+  image: paymentservice
+  port: 50051
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  env:
+    PORT: "50051"
+    DISABLE_PROFILER: "1"
+
+shippingservice:
+  enabled: true
+  replicas: 1
+  image: shippingservice
+  port: 50051
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  env:
+    PORT: "50051"
+    DISABLE_PROFILER: "1"
+
+currencyservice:
+  enabled: true
+  replicas: 1
+  image: currencyservice
+  port: 7000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  env:
+    PORT: "7000"
+    DISABLE_PROFILER: "1"
+
+emailservice:
+  enabled: true
+  replicas: 1
+  image: emailservice
+  port: 8080
+  servicePort: 5000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  env:
+    PORT: "8080"
+    DISABLE_PROFILER: "1"
+
+recommendationservice:
+  enabled: true
+  replicas: 1
+  image: recommendationservice
+  port: 8080
+  resources:
+    requests:
+      cpu: 100m
+      memory: 220Mi
+    limits:
+      cpu: 200m
+      memory: 450Mi
+  env:
+    PORT: "8080"
+    PRODUCT_CATALOG_SERVICE_ADDR: "productcatalogservice:3550"
+    DISABLE_PROFILER: "1"
+
+adservice:
+  enabled: true
+  replicas: 1
+  image: adservice
+  port: 9555
+  resources:
+    requests:
+      cpu: 200m
+      memory: 180Mi
+    limits:
+      cpu: 300m
+      memory: 300Mi
+  env:
+    PORT: "9555"
+
+loadgenerator:
+  enabled: true
+  replicas: 1
+  image: loadgenerator
+  resources:
+    requests:
+      cpu: 300m
       memory: 256Mi
     limits:
       cpu: 500m
       memory: 512Mi
+  env:
+    FRONTEND_ADDR: "frontend:80"
+    USERS: "10"
+    RATE: "1"
 
 redis:
-  storageClass: standard
+  enabled: true
+  image: "redis:alpine"
+  port: 6379
   storage: 512Mi
-
-rabbitmq:
   storageClass: standard
-  storage: 1Gi
+  resources:
+    requests:
+      cpu: 70m
+      memory: 200Mi
+    limits:
+      cpu: 125m
+      memory: 256Mi
 
 ingress:
   enabled: true
   className: nginx
   host: ecommerce.local
 
-networkPolicies:
-  enabled: false   # Set to true when using a CNI that supports NetworkPolicy (e.g. Calico)
+resourceQuota:
+  enabled: true
+  pods: "50"
+  requestsCpu: "8"
+  requestsMemory: 8Gi
+  limitsCpu: "16"
+  limitsMemory: 16Gi
+
+limitRange:
+  enabled: true
+  min:
+    cpu: 10m
+    memory: 16Mi
+  max:
+    cpu: "2"
+    memory: 2Gi
+  defaultRequest:
+    cpu: 100m
+    memory: 128Mi
+  default:
+    cpu: 200m
+    memory: 256Mi

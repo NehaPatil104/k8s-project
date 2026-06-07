@@ -42,12 +42,20 @@ kubectl config use-context "kind-${CLUSTER_NAME}"
 echo ""
 echo "[3/9] Installing NGINX Ingress Controller..."
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-echo "  Waiting for ingress controller..."
+
+# The Kind manifest nodeSelector only has kubernetes.io/os=linux — no ingress-ready=true.
+# Without this patch the ingress controller can land on any node, but port 80 is only
+# mapped on the control-plane. So we force it onto control-plane via nodeSelector.
+kubectl patch deployment ingress-nginx-controller -n ingress-nginx \
+  --type=json \
+  -p='[{"op":"add","path":"/spec/template/spec/nodeSelector","value":{"ingress-ready":"true","kubernetes.io/os":"linux"}}]'
+
+echo "  Waiting for ingress controller on control-plane..."
 kubectl wait --namespace ingress-nginx \
   --for=condition=ready pod \
   --selector=app.kubernetes.io/component=controller \
-  --timeout=120s
-echo "  ✓ NGINX Ingress ready"
+  --timeout=180s
+echo "  ✓ NGINX Ingress ready on control-plane"
 
 # --- Step 4: Metrics Server (for HPA) ---
 echo ""

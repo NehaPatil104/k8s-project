@@ -1,0 +1,54 @@
+{{- if .Values.frontend.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: {{ .Values.global.namespace }}
+spec:
+  minAvailable: {{ .Values.frontend.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app: frontend
+{{- end }}
+
+---
+{{- if .Values.cartservice.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cartservice-pdb
+  namespace: {{ .Values.global.namespace }}
+spec:
+  minAvailable: {{ .Values.cartservice.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app: cartservice
+{{- end }}
+
+---
+{{- if .Values.productcatalogservice.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: productcatalogservice-pdb
+  namespace: {{ .Values.global.namespace }}
+spec:
+  minAvailable: {{ .Values.productcatalogservice.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app: productcatalogservice
+{{- end }}
+
+---
+{{- if .Values.checkoutservice.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: checkoutservice-pdb
+  namespace: {{ .Values.global.namespace }}
+spec:
+  minAvailable: {{ .Values.checkoutservice.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app: checkoutservice
+{{- end }}
