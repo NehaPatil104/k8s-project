@@ -149,4 +149,6 @@ jobs:
           git add ${{ env.HELM_VALUES_PATH }}
           # Only commit if there are actual changes
           git diff --staged --quiet || git commit -m "ci(helm): update reviews-service image tag to ${{ needs.build-and-push.outputs.image_tag }}"
+          # Pull latest remote changes before pushing (other runs may have pushed commits)
+          git pull --rebase origin main
           git push
